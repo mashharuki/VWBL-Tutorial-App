@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { VwblContainer } from '../../../container';
 import { useDisclosure } from '../../../hooks';
-import { MAX_FILE_SIZE, VALID_EXTENSIONS } from '../../../utils';
+import { BASE64_MAX_SIZE, MAX_FILE_SIZE, VALID_EXTENSIONS } from '../../../utils';
 import { BackButton, FilePreviewer, NotificationModal } from '../../common';
 import './Create.css';
 
@@ -14,6 +14,7 @@ import './Create.css';
 export const Create = () => {
   const [file, setFile] = useState();
   const [fileUrl, setFileUrl] = useState('');
+  const [mimeType, setMimeType] = useState('');
   const [thumbnail, setThumbnail] = useState();
   const [thumbnailUrl, setThumbnailUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -44,8 +45,18 @@ export const Create = () => {
         // vwblネットワークに対する署名を確認する。
         await vwbl.sign();
       }
+
+      if (!title || !description || !asset || !thumbnail) {
+        console.log('Something went wrong.');
+        return;
+      }
+
+      const isLarge = asset[0].size > MAX_FILE_SIZE;
+      const isBase64 = asset[0].size < BASE64_MAX_SIZE;
+      const plainFile = isLarge ? segmentation(asset[0], MAX_FILE_SIZE) : asset[0];
       // call managedCreateTokenForIPFS function (mint VWBL NFT)
-      await vwbl.managedCreateTokenForIPFS(title, description, asset[0], thumbnail[0], 0);
+      await vwbl.managedCreateTokenForIPFS(title, description, plainFile, thumbnail[0], 0, isBase64 ? 'base64' : 'binary',);
+      // await vwbl.managedCreateToken(title, description, asset[0], thumbnail[0],0);
 
       setIsLoading(false);
       handleOpen();
@@ -67,6 +78,7 @@ export const Create = () => {
    */
   const onChangeFile = useCallback((e) => {
     const file = e.target.files[0];
+    setMimeType(file.type);
     setFile(file);
   }, []);
 
@@ -75,7 +87,7 @@ export const Create = () => {
    */
   const onChangeThumbnail = useCallback((e) => {
     const thumbnail = e.target.files[0];
-    if (!thumbnail?.type.match(VALID_EXTENSIONS.image)) {
+    if (!thumbnail?.type.match(VALID_EXTENSIONS.image || VALID_EXTENSIONS.audio || VALID_EXTENSIONS.video || 'pdf')) {
       alert('Image mime type is not valid');
       return;
     }
@@ -97,6 +109,24 @@ export const Create = () => {
     setThumbnailUrl('');
     setThumbnail(undefined);
   }, []);
+
+  /**
+   * segmentation function
+   * @param {*} file 
+   * @param {*} segmentSize 
+   * @returns 
+   */
+  const segmentation = (file, segmentSize) => {
+    const segments = [];
+    let fi = 0;
+    while (fi * segmentSize < file.size) {
+      const segment = file.slice(fi * segmentSize, (fi + 1) * segmentSize);
+      segments.push(new File([segment], `${file.name}-${fi}`, { type: file.type }));
+      ++fi;
+    }
+  
+    return segments;
+  };
 
   useEffect(() => {
     let fileReaderForFile;
@@ -150,7 +180,9 @@ export const Create = () => {
           <FilePreviewer
             url={fileUrl}
             inputId="asset"
-            acceptType=".jpeg,.jpg,.png,.gif"
+            acceptType=".jpeg,.jpg,.png,.gif,.mp4,.mov,.mp3,.pdf"
+            labelText={'Image, Video, Audio, or PDF'}
+            mimeType={mimeType}
             opt={{
               ...register('asset', {
                 required: 'Asset is required',
@@ -177,6 +209,7 @@ export const Create = () => {
             url={thumbnailUrl}
             inputId="thumbnail"
             acceptType=".jpeg,.jpg,.png,.gif"
+            labelText={'Image'}
             opt={{
               ...register('thumbnail', {
                 required: 'Thumbnail is required',
